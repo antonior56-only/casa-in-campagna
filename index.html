@@ -806,6 +806,55 @@ function executeDeleteCategory(id) {
   showMsg('🗑 Categoria eliminata.');
 }
 
+// ---- GESTIONE MODIFICA SPESA ---- //
+
+function openEditExpense(id) {
+  var exp = expenses.find(function(x) { return x.id === id; });
+  if (!exp) return;
+  document.getElementById('edit-exp-id').value = exp.id;
+  document.getElementById('edit-exp-catid').value = exp.categoryId;
+  document.getElementById('edit-exp-title').value = exp.title;
+  document.getElementById('edit-exp-date').value = exp.date;
+  document.getElementById('edit-exp-amount').value = exp.amount;
+  document.getElementById('edit-exp-paidby').value = exp.paidBy || 'Io';
+  document.getElementById('edit-exp-notes').value = exp.notes || '';
+  document.getElementById('modal-edit-exp').style.display = 'flex';
+}
+
+function closeEditExpense() {
+  document.getElementById('modal-edit-exp').style.display = 'none';
+}
+
+function saveEditExpense() {
+  var id = parseInt(document.getElementById('edit-exp-id').value);
+  var exp = expenses.find(function(x) { return x.id === id; });
+  if (!exp) return;
+
+  var title = document.getElementById('edit-exp-title').value.trim();
+  var date = document.getElementById('edit-exp-date').value;
+  var amount = parseFloat(document.getElementById('edit-exp-amount').value);
+  var catId = document.getElementById('edit-exp-catid').value;
+  var notes = document.getElementById('edit-exp-notes').value;
+  var paidBy = document.getElementById('edit-exp-paidby').value;
+
+  if(!title || !date || isNaN(amount)) {
+    alert("Compila i campi obbligatori (Titolo, Data, Importo)");
+    return;
+  }
+
+  exp.title = title;
+  exp.date = date;
+  exp.amount = amount;
+  exp.categoryId = catId;
+  exp.notes = notes;
+  exp.paidBy = paidBy;
+
+  save(); // Questo salverà anche localmente e imposterà hasUnsavedChanges per il cloud
+  closeEditExpense();
+  renderAll();
+  showMsg('✅ Spesa modificata con successo!');
+}
+
 // ---- GESTIONE BACKUP E DATI ---- //
 
 function doBackup(isExit = false) {

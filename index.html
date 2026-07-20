@@ -127,6 +127,12 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
 .rep-h1{font-size:22px;color:#2c5f2e;margin-bottom:4px}
 .rep-sub{font-size:12px;color:#7a9a7a;margin-bottom:12px}
 .rep-section-title{font-size:15px;color:#2c5f2e;font-weight:bold;margin:18px 0 6px;border-bottom:2px solid #4a7c59;padding-bottom:4px}
+.report-opts{margin-top:16px;padding:14px;border:1px dashed #cfe0c8;border-radius:12px;background:#f6faf3}
+.report-opts-title{font-size:12px;color:#5a7a5a;font-weight:bold;margin-bottom:10px;text-transform:uppercase;letter-spacing:.3px}
+.report-opts-filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.report-sections{display:flex;flex-wrap:wrap;gap:8px 18px}
+.report-sections label{display:inline-flex;align-items:center;gap:6px;font-weight:normal;margin:0;cursor:pointer;font-size:13px;color:#2c3e2d}
+.report-sections input[type=checkbox]{width:auto;margin:0;cursor:pointer}
 @media print{
   body.printing{background:#fff !important}
   body.printing > *:not(#modal-report){display:none !important}
@@ -190,6 +196,32 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
       </div>
     </div>
     <div id="bilancio-body"></div>
+
+    <div class="report-opts">
+      <div class="report-opts-title">Opzioni di stampa del report</div>
+      <div class="report-opts-filters">
+        <div style="flex:1;min-width:150px">
+          <label style="font-size:12px;margin-bottom:4px">Categoria</label>
+          <select id="report-cat"></select>
+        </div>
+        <div style="flex:1;min-width:150px">
+          <label style="font-size:12px;margin-bottom:4px">Pagante</label>
+          <select id="report-paidby">
+            <option value="tutti">Papà e Silvia</option>
+            <option value="Papà">Solo Papà</option>
+            <option value="Silvia">Solo Silvia</option>
+          </select>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#5a7a5a;margin:4px 0 6px">Sezioni da includere:</div>
+      <div class="report-sections">
+        <label><input type="checkbox" id="sec-cat" checked> Spese per categoria</label>
+        <label><input type="checkbox" id="sec-payer" checked> Ripartizione per pagante</label>
+        <label><input type="checkbox" id="sec-month" checked> Andamento mensile</label>
+        <label><input type="checkbox" id="sec-list"> Elenco dettagliato spese</label>
+      </div>
+    </div>
+
     <button class="btn-primary" style="margin-top:14px" onclick="openAnnualReport()">🖨️ Report annuale (stampa / PDF)</button>
   </div>
 
@@ -541,11 +573,11 @@ function goPage(p) {
 
 function renderCatSelects() {
   // Aggiunto edit-exp-catid nell'array per aggiornare anche la tendina della modale
-  ['f-catid','f-cat','list-cat-filter','edit-exp-catid'].forEach(function(sid) {
+  ['f-catid','f-cat','list-cat-filter','edit-exp-catid','report-cat'].forEach(function(sid) {
     var sel = document.getElementById(sid);
     if(!sel) return;
     var prev = sel.value;
-    var base = (sid==='f-cat'||sid==='list-cat-filter') ? '<option value="tutte">Tutte le categorie</option>' : '';
+    var base = (sid==='f-cat'||sid==='list-cat-filter'||sid==='report-cat') ? '<option value="tutte">Tutte le categorie</option>' : '';
     var sortedCats = categories.slice().sort(function(a,b){ return (a.label||'').localeCompare(b.label||'', 'it', {sensitivity:'base'}); });
     sel.innerHTML = base + sortedCats.map(function(c){
       return '<option value="'+c.id+'">'+esc(c.emoji)+' '+esc(c.label)+'</option>';
@@ -1085,11 +1117,15 @@ function showMsg(txt) {
 
 function payerOf(e){ return e.paidBy==='Silvia' ? 'Silvia' : 'Papà'; }
 
-function reportData(yearVal){
+function reportData(yearVal, catVal, payVal){
   if(!yearVal) yearVal='tutti';
+  catVal = catVal || 'tutte';
+  payVal = payVal || 'tutti';
   var act = expenses.filter(function(e){
     if(!e.active) return false;
     if(yearVal!=='tutti' && new Date(e.date).getFullYear()!==parseInt(yearVal)) return false;
+    if(catVal!=='tutte' && e.categoryId!==catVal) return false;
+    if(payVal!=='tutti' && payerOf(e)!==payVal) return false;
     return true;
   });
   var papa=0, silvia=0;
@@ -1114,40 +1150,54 @@ function renderBilancio(){
 }
 
 function openAnnualReport(){
-  var yv = (document.getElementById('report-year').value) || 'tutti';
-  var d = reportData(yv);
-  var periodo = (yv==='tutti') ? 'Tutti gli anni' : ('Anno '+yv);
+  var yv   = (document.getElementById('report-year').value) || 'tutti';
+  var catV = (document.getElementById('report-cat')||{}).value || 'tutte';
+  var payV = (document.getElementById('report-paidby')||{}).value || 'tutti';
+  var secCat   = document.getElementById('sec-cat').checked;
+  var secPayer = document.getElementById('sec-payer').checked;
+  var secMonth = document.getElementById('sec-month').checked;
+  var secList  = document.getElementById('sec-list').checked;
+  var d = reportData(yv, catV, payV);
+
+  var filtri = [ (yv==='tutti') ? 'Tutti gli anni' : ('Anno '+yv) ];
+  if(catV!=='tutte'){ var cc = getCat(catV); filtri.push('Categoria: '+cc.emoji+' '+cc.label); }
+  if(payV!=='tutti') filtri.push('Pagante: solo '+payV);
+
   var h = '';
   h += '<div class="rep-h1">🏡 Casa in Campagna — Report '+(yv==='tutti'?'Completo':esc(yv))+'</div>';
-  h += '<div class="rep-sub">'+periodo+' · generato il '+new Date().toLocaleDateString('it-IT')+' · totale spese: € '+d.total.toFixed(2)+'</div>';
+  h += '<div class="rep-sub">'+esc(filtri.join(' · '))+' · generato il '+new Date().toLocaleDateString('it-IT')+' · totale: € '+d.total.toFixed(2)+' ('+d.items.length+' voci)</div>';
 
-  // Spese per categoria
-  h += '<div class="rep-section-title">Spese per categoria</div>';
-  h += '<table class="rep-table"><thead><tr><th>Categoria</th><th class="num">Voci</th><th class="num">Totale</th><th class="num">%</th></tr></thead><tbody>';
-  var rows = categories.map(function(c){
-    var its = d.items.filter(function(e){ return e.categoryId===c.id; });
-    return { label:c.emoji+' '+c.label, count:its.length, tot:its.reduce(function(s,e){return s+e.amount;},0) };
-  }).filter(function(r){ return r.tot>0; }).sort(function(a,b){ return b.tot-a.tot; });
-  rows.forEach(function(r){
-    var pct = d.total>0 ? (r.tot/d.total*100) : 0;
-    h += '<tr><td>'+esc(r.label)+'</td><td class="num">'+r.count+'</td><td class="num">€ '+r.tot.toFixed(2)+'</td><td class="num">'+pct.toFixed(1)+'%</td></tr>';
-  });
-  h += '<tr><td><b>Totale</b></td><td class="num"><b>'+d.items.length+'</b></td><td class="num"><b>€ '+d.total.toFixed(2)+'</b></td><td class="num"><b>100%</b></td></tr>';
-  h += '</tbody></table>';
+  if(!secCat && !secPayer && !secMonth && !secList){
+    h += '<div class="report-note" style="margin-top:20px">Nessuna sezione selezionata: spunta almeno una sezione da includere nel report.</div>';
+  }
 
-  // Ripartizione per pagante
-  h += '<div class="rep-section-title">Ripartizione per pagante</div>';
-  h += '<table class="rep-table"><thead><tr><th>Pagante</th><th class="num">Totale</th><th class="num">%</th></tr></thead><tbody>';
-  h += '<tr><td>👤 Papà</td><td class="num">€ '+d.papa.toFixed(2)+'</td><td class="num">'+(d.total>0?(d.papa/d.total*100).toFixed(1):'0')+'%</td></tr>';
-  h += '<tr><td>👤 Silvia</td><td class="num">€ '+d.silvia.toFixed(2)+'</td><td class="num">'+(d.total>0?(d.silvia/d.total*100).toFixed(1):'0')+'%</td></tr>';
-  h += '</tbody></table>';
+  if(secCat){
+    h += '<div class="rep-section-title">Spese per categoria</div>';
+    h += '<table class="rep-table"><thead><tr><th>Categoria</th><th class="num">Voci</th><th class="num">Totale</th><th class="num">%</th></tr></thead><tbody>';
+    var rows = categories.map(function(c){
+      var its = d.items.filter(function(e){ return e.categoryId===c.id; });
+      return { label:c.emoji+' '+c.label, count:its.length, tot:its.reduce(function(s,e){return s+e.amount;},0) };
+    }).filter(function(r){ return r.tot>0; }).sort(function(a,b){ return b.tot-a.tot; });
+    rows.forEach(function(r){
+      var pct = d.total>0 ? (r.tot/d.total*100) : 0;
+      h += '<tr><td>'+esc(r.label)+'</td><td class="num">'+r.count+'</td><td class="num">€ '+r.tot.toFixed(2)+'</td><td class="num">'+pct.toFixed(1)+'%</td></tr>';
+    });
+    h += '<tr><td><b>Totale</b></td><td class="num"><b>'+d.items.length+'</b></td><td class="num"><b>€ '+d.total.toFixed(2)+'</b></td><td class="num"><b>100%</b></td></tr>';
+    h += '</tbody></table>';
+  }
 
-  // Andamento mensile (solo anno singolo)
-  if(yv!=='tutti'){
+  if(secPayer){
+    h += '<div class="rep-section-title">Ripartizione per pagante</div>';
+    h += '<table class="rep-table"><thead><tr><th>Pagante</th><th class="num">Totale</th><th class="num">%</th></tr></thead><tbody>';
+    h += '<tr><td>👤 Papà</td><td class="num">€ '+d.papa.toFixed(2)+'</td><td class="num">'+(d.total>0?(d.papa/d.total*100).toFixed(1):'0')+'%</td></tr>';
+    h += '<tr><td>👤 Silvia</td><td class="num">€ '+d.silvia.toFixed(2)+'</td><td class="num">'+(d.total>0?(d.silvia/d.total*100).toFixed(1):'0')+'%</td></tr>';
+    h += '</tbody></table>';
+  }
+
+  if(secMonth && yv!=='tutti'){
     var mtot = {};
     d.items.forEach(function(e){ var m=new Date(e.date).getMonth(); mtot[m]=(mtot[m]||0)+e.amount; });
-    var anyM = Object.keys(mtot).length>0;
-    if(anyM){
+    if(Object.keys(mtot).length>0){
       h += '<div class="rep-section-title">Andamento mensile</div>';
       h += '<table class="rep-table"><thead><tr><th>Mese</th><th class="num">Totale</th></tr></thead><tbody>';
       MONTHS.forEach(function(mn,i){ if(mtot[i]) h += '<tr><td>'+mn+'</td><td class="num">€ '+mtot[i].toFixed(2)+'</td></tr>'; });
@@ -1155,18 +1205,20 @@ function openAnnualReport(){
     }
   }
 
-  // Elenco completo
-  h += '<div class="rep-section-title">Elenco spese ('+d.items.length+' voci)</div>';
-  if(d.items.length===0){
-    h += '<div class="report-note">Nessuna spesa attiva nel periodo selezionato.</div>';
-  } else {
-    h += '<table class="rep-table"><thead><tr><th>Data</th><th>Categoria</th><th>Titolo</th><th class="num">Importo</th><th>Pagante</th></tr></thead><tbody>';
-    d.items.slice().sort(function(a,b){ return new Date(a.date)-new Date(b.date); }).forEach(function(e){
-      var c = getCat(e.categoryId);
-      h += '<tr><td>'+new Date(e.date).toLocaleDateString('it-IT')+'</td><td>'+esc(c.emoji+' '+c.label)+'</td><td>'+esc(e.title)+'</td><td class="num">€ '+e.amount.toFixed(2)+'</td><td>'+esc(payerOf(e))+'</td></tr>';
-    });
-    h += '</tbody></table>';
+  if(secList){
+    h += '<div class="rep-section-title">Elenco spese ('+d.items.length+' voci)</div>';
+    if(d.items.length===0){
+      h += '<div class="report-note">Nessuna spesa con i filtri selezionati.</div>';
+    } else {
+      h += '<table class="rep-table"><thead><tr><th>Data</th><th>Categoria</th><th>Titolo</th><th class="num">Importo</th><th>Pagante</th></tr></thead><tbody>';
+      d.items.slice().sort(function(a,b){ return new Date(a.date)-new Date(b.date); }).forEach(function(e){
+        var c = getCat(e.categoryId);
+        h += '<tr><td>'+new Date(e.date).toLocaleDateString('it-IT')+'</td><td>'+esc(c.emoji+' '+c.label)+'</td><td>'+esc(e.title)+'</td><td class="num">€ '+e.amount.toFixed(2)+'</td><td>'+esc(payerOf(e))+'</td></tr>';
+      });
+      h += '</tbody></table>';
+    }
   }
+
   h += '<div class="report-note" style="margin-top:14px">Documento generato automaticamente da Casa in Campagna. Include solo le spese attive.</div>';
 
   document.getElementById('report-content').innerHTML = h;

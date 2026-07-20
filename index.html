@@ -517,7 +517,12 @@ function addExpense() {
   var catId = document.getElementById('f-catid').value;
   var notes = document.getElementById('f-notes').value;
   var paidBy = document.getElementById('f-paidby2').value;
-  if(!title || !date || isNaN(amount)) return;
+  
+  if(!title || !date || isNaN(amount)) {
+    alert("Compila i campi obbligatori (Titolo, Data, Importo)");
+    return;
+  }
+  
   expenses.push({id:Date.now(), date:date, amount:amount, categoryId:catId, notes:notes, title:title, paidBy:paidBy, active:true});
   save();
   document.getElementById('f-title').value = '';
@@ -830,7 +835,7 @@ async function saveToCloud(dataToSave, isExit = false) {
     hasUnsavedChanges = false; // Reset modifiche
     
     if (isExit) {
-      alert("✅ Salvataggio completato. I dati sono al sicuro. Ora puoi chiudere la scheda.");
+      alert("✅ Salvataggio completato. I dati sono al sicuro. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
       try { window.close(); } catch(e) {}
     } else {
       showMsg('☁️ Salvataggio in Cloud completato!');
@@ -846,6 +851,11 @@ async function saveToCloud(dataToSave, isExit = false) {
 }
 
 function manualCloudLoad() {
+  if (hasUnsavedChanges) {
+    if (!window.confirm("⚠️ Hai modifiche locali non salvate sul cloud. Scaricando i dati ora andranno perse. Vuoi procedere comunque?")) {
+      return;
+    }
+  }
   loadFromCloud(false);
 }
 
@@ -857,7 +867,7 @@ function manualCloudSave() {
 // Intercetta "ESCI E SALVA"
 async function exitAndSave() {
   if (!hasUnsavedChanges) {
-    alert("Nessuna modifica");
+    alert("Nessuna modifica. Puoi chiudere manualmente questa scheda.");
     try { window.close(); } catch(e) {}
     return;
   }
@@ -1023,7 +1033,7 @@ function doBackup(isExit = false) {
   document.body.removeChild(a);
   
   if(isExit) {
-    alert("✅ Backup locale completato. Il file è stato scaricato. Ora puoi chiudere la scheda.");
+    alert("✅ Backup locale completato. Il file è stato scaricato. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
     try { window.close(); } catch(e) {}
   } else {
     showMsg('✅ Backup scaricato!');
@@ -1238,6 +1248,14 @@ function renderAll() {
   renderRiepilogo();
   renderBilancio();
 }
+
+// ---- INTERCETTAZIONE CHIUSURA SCHEDA ---- //
+window.addEventListener('beforeunload', function (e) {
+  if (hasUnsavedChanges) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 
 // Inizializzazione avvio
 normalizeData();

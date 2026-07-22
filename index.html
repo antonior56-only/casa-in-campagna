@@ -141,9 +141,26 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
   body.printing .no-print{display:none !important}
   .rep-table th,.report-box,.settlement{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+/* ===== FASCIA SALVATAGGIO ===== */
+#save-bar{position:sticky;top:0;z-index:900;display:none;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;
+  padding:9px 14px;font-size:13px;font-family:Georgia,serif;box-shadow:0 2px 8px #0002}
+#save-bar.dirty{display:flex;background:#fff3e0;border-bottom:2px solid #c2703d;color:#8a4b1d}
+#save-bar.clean{display:flex;background:#e8f5e9;border-bottom:2px solid #4a7c59;color:#2c5f2e}
+#save-bar .sb-txt{font-weight:bold}
+#save-bar .sb-sub{font-size:11px;opacity:.85}
+#save-bar button{background:#c2703d;color:#fff;border:none;border-radius:16px;padding:5px 16px;font-size:12px;
+  font-weight:bold;font-family:Georgia,serif;cursor:pointer}
+#save-bar button:disabled{opacity:.5;cursor:not-allowed}
+@media print{#save-bar{display:none !important}}
 </style>
 </head>
 <body>
+
+<div id="save-bar">
+  <span class="sb-txt" id="save-bar-txt"></span>
+  <span class="sb-sub" id="save-bar-sub"></span>
+  <button id="save-bar-btn" onclick="saveNow()">Salva ora</button>
+</div>
 
 <div class="header">
   <div style="font-size:40px;margin-bottom:4px">🏡</div>
@@ -202,11 +219,11 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
       <div class="report-opts-filters">
         <div style="flex:1;min-width:150px">
           <label style="font-size:12px;margin-bottom:4px">Categoria</label>
-          <select id="report-cat"></select>
+          <select id="report-cat" onchange="saveReportPrefs()"></select>
         </div>
         <div style="flex:1;min-width:150px">
           <label style="font-size:12px;margin-bottom:4px">Pagante</label>
-          <select id="report-paidby">
+          <select id="report-paidby" onchange="saveReportPrefs()">
             <option value="tutti">Papà e Silvia</option>
             <option value="Papà">Solo Papà</option>
             <option value="Silvia">Solo Silvia</option>
@@ -215,10 +232,10 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
       </div>
       <div style="font-size:12px;color:#5a7a5a;margin:4px 0 6px">Sezioni da includere:</div>
       <div class="report-sections">
-        <label><input type="checkbox" id="sec-cat" checked> Spese per categoria</label>
-        <label><input type="checkbox" id="sec-payer" checked> Ripartizione per pagante</label>
-        <label><input type="checkbox" id="sec-month" checked> Andamento mensile</label>
-        <label><input type="checkbox" id="sec-list"> Elenco dettagliato spese</label>
+        <label><input type="checkbox" id="sec-cat" checked onchange="saveReportPrefs()"> Spese per categoria</label>
+        <label><input type="checkbox" id="sec-payer" checked onchange="saveReportPrefs()"> Ripartizione per pagante</label>
+        <label><input type="checkbox" id="sec-month" checked onchange="saveReportPrefs()"> Andamento mensile</label>
+        <label><input type="checkbox" id="sec-list" onchange="saveReportPrefs()"> Elenco dettagliato spese</label>
       </div>
     </div>
 
@@ -442,7 +459,64 @@ function normalizeData(){ expenses.forEach(function(e){ if(typeof e.active==='un
 function save() {
   localStorage.setItem('cc_expenses', JSON.stringify(expenses));
   localStorage.setItem('cc_categories', JSON.stringify(categories));
+  localStorage.setItem('cc_lastmod', new Date().toISOString()); // data ultima modifica locale
   hasUnsavedChanges = true; // Segna che ci sono modifiche da salvare in uscita
+  updateSaveBar();
+}
+
+function setLastSaved(where){
+  localStorage.setItem('cc_lastsaved', JSON.stringify({at:new Date().toISOString(), where:where}));
+}
+
+function updateSaveBar(){
+  var bar = document.getElementById('save-bar');
+  if(!bar) return;
+  var txt = document.getElementById('save-bar-txt');
+  var sub = document.getElementById('save-bar-sub');
+  var btn = document.getElementById('save-bar-btn');
+  var ls  = safeParse(localStorage.getItem('cc_lastsaved'), null);
+  var quando = '';
+  if(ls && ls.at){
+    var d = new Date(ls.at);
+    var oggi = (d.toDateString() === new Date().toDateString());
+    quando = 'Ultimo salvataggio ' + (ls.where==='cloud' ? 'sul Cloud' : 'su file')
+           + ': ' + (oggi ? ('oggi alle ' + d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}))
+                          : d.toLocaleString('it-IT'));
+  } else {
+    quando = 'Nessun salvataggio su Cloud o file finora';
+  }
+  if(hasUnsavedChanges){
+    bar.className = 'dirty';
+    txt.textContent = '\u25cf Modifiche non salvate';
+    sub.textContent = quando;
+    btn.style.display = '';
+    btn.disabled = isSyncing;
+    btn.textContent = cloudConfig.binId && cloudConfig.apiKey ? 'Salva sul Cloud' : 'Scarica backup';
+  } else {
+    bar.className = 'clean';
+    txt.textContent = '\u2713 Tutto salvato';
+    sub.textContent = quando;
+    btn.style.display = 'none';
+  }
+}
+
+function saveNow(){
+  if(cloudConfig.binId && cloudConfig.apiKey) manualCloudSave();
+  else doBackup();
+}
+
+
+function cloudErrore(status, azione){
+  switch(status){
+    case 401:
+    case 403: return "Chiave API (Master Key) errata o non autorizzata.\nControlla la chiave in \u00ab Configura Cloud \u00bb.";
+    case 404: return "Bin ID inesistente: nessun contenitore trovato con questo identificativo.\nControlla il Bin ID in \u00ab Configura Cloud \u00bb.";
+    case 429: return "Limite di richieste JSONBin esaurito.\nAttendi qualche minuto e riprova.";
+    case 400: return "Richiesta non valida (dati o identificativo non corretti).";
+    default:
+      if(!status) return "Nessuna connessione a internet, oppure il servizio non risponde.";
+      return "Errore del servizio Cloud durante " + azione + " (codice " + status + ").";
+  }
 }
 
 function saveNoDirty() {
@@ -761,7 +835,7 @@ function saveCloudConfig() {
   updateCloudBtnStyle();
 }
 
-async function loadFromCloud(isSilent = false) {
+async function loadFromCloud(isSilent = false, isStartup = false) {
   if(!cloudConfig.binId || !cloudConfig.apiKey) return;
   
   isSyncing = true;
@@ -773,26 +847,46 @@ async function loadFromCloud(isSilent = false) {
       headers: { 'X-Master-Key': cloudConfig.apiKey }
     });
     
-    if(!res.ok) throw new Error('Credenziali non valide o rete assente');
+    if(!res.ok) throw new Error(cloudErrore(res.status, 'il caricamento'));
     
     const data = await res.json();
     if(data.record && data.record.expenses && data.record.categories) {
+      // All'avvio: se i dati locali sono piu' recenti di quelli sul cloud, chiedo cosa fare
+      if(isStartup && expenses.length > 0){
+        var localIso = localStorage.getItem('cc_lastmod');
+        var localAt  = localIso ? new Date(localIso).getTime() : 0;
+        var remoteAt = data.record.exportedAt ? new Date(data.record.exportedAt).getTime() : 0;
+        if(localAt && remoteAt && localAt > remoteAt + 1000){
+          var msg = "\u26a0\ufe0f I dati su questo dispositivo sono PIU' RECENTI di quelli sul Cloud.\n\n"
+                  + "\u2022 Questo dispositivo: " + new Date(localAt).toLocaleString('it-IT') + " (" + expenses.length + " spese)\n"
+                  + "\u2022 Cloud: " + new Date(remoteAt).toLocaleString('it-IT') + " (" + data.record.expenses.length + " spese)\n\n"
+                  + "OK = scarica dal Cloud (sostituisce i dati di questo dispositivo)\n"
+                  + "Annulla = mantieni i dati di questo dispositivo";
+          if(!window.confirm(msg)){
+            hasUnsavedChanges = true;   // ci sono modifiche locali non ancora sul cloud
+            updateSaveBar();
+            return;
+          }
+        }
+      }
       expenses = data.record.expenses;
       categories = data.record.categories;
       normalizeData();
       cloudBaseExportedAt = data.record.exportedAt ? new Date(data.record.exportedAt).getTime() : Date.now();
       saveNoDirty(); // Salvo in localStorage ma senza impostare hasUnsavedChanges = true
       hasUnsavedChanges = false;
+      updateSaveBar();
       selectedYear = null;
       selectedMonth = null;
       renderAll();
       if(!isSilent) showMsg('✅ Dati scaricati dal Cloud!');
     }
   } catch(e) {
-    if(!isSilent) alert("Errore di caricamento dal Cloud:\n" + e.message);
+    if(!isSilent) alert("\u26a0\ufe0f Caricamento dal Cloud non riuscito\n\n" + e.message);
   } finally {
     isSyncing = false;
     updateCloudBtnStyle();
+    updateSaveBar();
   }
 }
 
@@ -829,10 +923,12 @@ async function saveToCloud(dataToSave, isExit = false) {
       body: JSON.stringify(dataToSave)
     });
     
-    if(!res.ok) throw new Error('Impossibile salvare i dati');
+    if(!res.ok) throw new Error(cloudErrore(res.status, 'il salvataggio'));
     
     cloudBaseExportedAt = (dataToSave && dataToSave.exportedAt) ? new Date(dataToSave.exportedAt).getTime() : Date.now();
     hasUnsavedChanges = false; // Reset modifiche
+    setLastSaved('cloud');
+    updateSaveBar();
     
     if (isExit) {
       alert("✅ Salvataggio completato. I dati sono al sicuro. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
@@ -842,7 +938,7 @@ async function saveToCloud(dataToSave, isExit = false) {
     }
     return true;
   } catch(e) {
-    alert("Errore salvataggio Cloud:\n" + e.message);
+    alert("\u26a0\ufe0f Salvataggio sul Cloud non riuscito\n\n" + e.message + "\n\nI dati restano salvati su questo dispositivo.");
     return false;
   } finally {
     isSyncing = false;
@@ -1031,6 +1127,8 @@ function doBackup(isExit = false) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  setLastSaved('file');
+  updateSaveBar();
   
   if(isExit) {
     alert("✅ Backup locale completato. Il file è stato scaricato. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
@@ -1094,6 +1192,17 @@ function fallbackCopy(txt) {
   showMsg('✅ Dati copiati! Incollali su Claude.ai e fai le tue domande.');
 }
 
+function applyRestore(parsed) {
+  expenses = parsed.expenses;
+  categories = parsed.categories;
+  normalizeData();
+  save();
+  selectedYear = null;
+  selectedMonth = null;
+  renderAll();
+  showMsg('✅ Dati ripristinati correttamente!');
+}
+
 function doRestore(e) {
   var file = e.target.files[0];
   if(!file) return;
@@ -1102,14 +1211,13 @@ function doRestore(e) {
     try {
       var parsed = JSON.parse(ev.target.result);
       if(!parsed.expenses || !parsed.categories) throw new Error();
-      expenses = parsed.expenses;
-      categories = parsed.categories;
-      normalizeData();
-      save();
-      selectedYear = null;
-      selectedMonth = null;
-      renderAll();
-      showMsg('✅ Dati ripristinati correttamente!');
+      var nSpese = parsed.expenses.length;
+      var dataBk = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString('it-IT') : 'data non indicata';
+      showConfirm(
+        'Vuoi ripristinare il backup del <b>'+esc(dataBk)+'</b> ('+nSpese+' spese)?<br><br>'
+        + 'Tutti i dati attualmente presenti nell\'app verranno <b>sostituiti</b>.',
+        function(){ applyRestore(parsed); }
+      );
     } catch(err) {
       showMsg('❌ File non valido o corrotto.');
     }
@@ -1157,6 +1265,28 @@ function renderBilancio(){
     +'</div>'
     +'<div class="report-note">Sono conteggiate solo le spese attive (le voci escluse con ✗ non rientrano nel calcolo).</div>';
   document.getElementById('bilancio-body').innerHTML = box;
+}
+
+var REPORT_SECS = ['sec-cat','sec-payer','sec-month','sec-list'];
+
+function saveReportPrefs(){
+  var p = { cat:(document.getElementById('report-cat')||{}).value || 'tutte',
+            pay:(document.getElementById('report-paidby')||{}).value || 'tutti', secs:{} };
+  REPORT_SECS.forEach(function(id){ var el=document.getElementById(id); if(el) p.secs[id]=el.checked; });
+  localStorage.setItem('cc_report_prefs', JSON.stringify(p));
+}
+
+function loadReportPrefs(){
+  var p = safeParse(localStorage.getItem('cc_report_prefs'), null);
+  if(!p) return;
+  var c = document.getElementById('report-cat');
+  if(c && p.cat){ var ok=false; for(var i=0;i<c.options.length;i++){ if(c.options[i].value===p.cat) ok=true; } if(ok) c.value=p.cat; }
+  var q = document.getElementById('report-paidby');
+  if(q && p.pay) q.value = p.pay;
+  if(p.secs) REPORT_SECS.forEach(function(id){
+    var el=document.getElementById(id);
+    if(el && typeof p.secs[id]==='boolean') el.checked = p.secs[id];
+  });
 }
 
 function openAnnualReport(){
@@ -1261,9 +1391,11 @@ window.addEventListener('beforeunload', function (e) {
 normalizeData();
 saveNoDirty();
 renderAll();
+loadReportPrefs();
 updateCloudBtnStyle();
+updateSaveBar();
 if (cloudConfig.binId && cloudConfig.apiKey) {
-  loadFromCloud(true); // Auto-load all'avvio se il cloud è configurato
+  loadFromCloud(true, true); // Auto-load all'avvio, con confronto se i dati locali sono più recenti
 }
 </script>
 </body>

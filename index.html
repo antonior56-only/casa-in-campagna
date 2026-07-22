@@ -719,7 +719,10 @@ function renderExpenses() {
     if(listYear!=='tutti' && d.getFullYear()!==parseInt(listYear)) return false;
     if(listCat!=='tutte' && e.categoryId!==listCat) return false;
     return true;
-  }).sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
+  }).sort(function(a,b){
+    var t = new Date(b.date) - new Date(a.date);
+    return t !== 0 ? t : b.id - a.id;
+  });
 
   var total = filtered.filter(function(e){return e.active;}).reduce(function(s,e){return s+e.amount;}, 0);
   var label = listYear==='tutti' ? 'Tutte le spese' : ('Spese '+listYear);
@@ -1128,6 +1131,7 @@ function doBackup(isExit = false) {
   a.click();
   document.body.removeChild(a);
   setLastSaved('file');
+  hasUnsavedChanges = false;
   updateSaveBar();
   
   if(isExit) {
@@ -1163,7 +1167,10 @@ function copyForAI() {
   txt += '| Data | Categoria | Titolo | Importo | Pagato da | Note |\n';
   txt += '|------|-----------|--------|---------|-----------|------|\n';
   expenses.filter(function(e){return e.active;})
-    .sort(function(a,b){return new Date(b.date)-new Date(a.date);})
+    .sort(function(a,b){
+      var t = new Date(b.date) - new Date(a.date);
+      return t !== 0 ? t : b.id - a.id;
+    })
     .forEach(function(e) {
       var cat = catMap[e.categoryId] || 'Altro';
       txt += '| '+new Date(e.date).toLocaleDateString('it-IT')+' | '+cat+' | '+e.title+' | € '+e.amount.toFixed(2)+' | '+(e.paidBy||'Papà')+' | '+(e.notes||'')+' |\n';
@@ -1351,7 +1358,10 @@ function openAnnualReport(){
       h += '<div class="report-note">Nessuna spesa con i filtri selezionati.</div>';
     } else {
       h += '<table class="rep-table"><thead><tr><th>Data</th><th>Categoria</th><th>Titolo</th><th class="num">Importo</th><th>Pagante</th></tr></thead><tbody>';
-      d.items.slice().sort(function(a,b){ return new Date(a.date)-new Date(b.date); }).forEach(function(e){
+      d.items.slice().sort(function(a,b){
+        var t = new Date(a.date) - new Date(b.date);
+        return t !== 0 ? t : a.id - b.id;
+      }).forEach(function(e){
         var c = getCat(e.categoryId);
         h += '<tr><td>'+new Date(e.date).toLocaleDateString('it-IT')+'</td><td>'+esc(c.emoji+' '+c.label)+'</td><td>'+esc(e.title)+'</td><td class="num">€ '+e.amount.toFixed(2)+'</td><td>'+esc(payerOf(e))+'</td></tr>';
       });

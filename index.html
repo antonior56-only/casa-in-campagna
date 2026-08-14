@@ -330,6 +330,13 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
           <option value="tutte">Tutte le categorie</option>
         </select>
       </div>
+      <div><label>👤 Pagante</label>
+        <select id="list-paidby-filter" onchange="onListFilterChange()">
+          <option value="tutti">Papà e Silvia</option>
+          <option value="Papà">Solo Papà</option>
+          <option value="Silvia">Solo Silvia</option>
+        </select>
+      </div>
     </div>
     <div id="exp-list"></div>
     <div class="pagination" id="pagination"></div>
@@ -720,10 +727,13 @@ function renderMonths() {
 function renderExpenses() {
   var listYear = document.getElementById('list-year-filter').value;
   var listCat = document.getElementById('list-cat-filter').value;
+  var lpEl = document.getElementById('list-paidby-filter');
+  var listPay = lpEl ? lpEl.value : 'tutti';
   var filtered = expenses.filter(function(e) {
     var d = new Date(e.date);
     if(listYear!=='tutti' && d.getFullYear()!==parseInt(listYear)) return false;
     if(listCat!=='tutte' && e.categoryId!==listCat) return false;
+    if(listPay!=='tutti' && payerOf(e)!==listPay) return false;
     return true;
   }).sort(function(a,b){
     var t = new Date(b.date) - new Date(a.date);
@@ -899,7 +909,7 @@ async function loadFromCloud(isSilent = false, isStartup = false) {
   }
 }
 
-async function saveToCloud(dataToSave, isExit = false) {
+async function saveToCloud(dataToSave, isExit = false, isAuto = false) {
   if(!cloudConfig.binId || !cloudConfig.apiKey) {
     if(!isExit) alert("Configura prima il Bin ID e l'API Key.");
     return false;
@@ -916,6 +926,7 @@ async function saveToCloud(dataToSave, isExit = false) {
         const chkData = await chk.json();
         const remoteAt = (chkData.record && chkData.record.exportedAt) ? new Date(chkData.record.exportedAt).getTime() : 0;
         if(remoteAt && cloudBaseExportedAt && remoteAt > cloudBaseExportedAt + 1000){
+          if(isAuto){ isSyncing = false; updateCloudBtnStyle(); return false; } // auto: non sovrascrivo in silenzio
           if(!window.confirm("⚠️ Sul cloud ci sono dati più recenti, salvati da un altro dispositivo.\n\nSe continui verranno SOVRASCRITTI con i dati di questo dispositivo. Procedere?")){
             isSyncing = false; updateCloudBtnStyle(); return false;
           }
@@ -942,12 +953,12 @@ async function saveToCloud(dataToSave, isExit = false) {
     if (isExit) {
       alert("✅ Salvataggio completato. I dati sono al sicuro. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
       try { window.close(); } catch(e) {}
-    } else {
+    } else if(!isAuto) {
       showMsg('☁️ Salvataggio in Cloud completato!');
     }
     return true;
   } catch(e) {
-    alert("\u26a0\ufe0f Salvataggio sul Cloud non riuscito\n\n" + e.message + "\n\nI dati restano salvati su questo dispositivo.");
+    if(!isAuto) alert("\u26a0\ufe0f Salvataggio sul Cloud non riuscito\n\n" + e.message + "\n\nI dati restano salvati su questo dispositivo.");
     return false;
   } finally {
     isSyncing = false;
@@ -967,6 +978,14 @@ function manualCloudLoad() {
 function manualCloudSave() {
   var dataToSave = { expenses: expenses, categories: categories, exportedAt: new Date().toISOString() };
   saveToCloud(dataToSave, false);
+}
+
+// Salvataggio automatico sul Cloud ogni 3 minuti, solo se ci sono modifiche non ancora salvate
+function autoCloudSave() {
+  if(!cloudConfig.binId || !cloudConfig.apiKey) return; // Cloud non configurato
+  if(!hasUnsavedChanges || isSyncing) return;           // niente da salvare o già in corso
+  var dataToSave = { expenses: expenses, categories: categories, exportedAt: new Date().toISOString() };
+  saveToCloud(dataToSave, false, true);                 // true = automatico (silenzioso)
 }
 
 // Intercetta "ESCI E SALVA"
@@ -1417,6 +1436,7 @@ updateSaveBar();
 if (cloudConfig.binId && cloudConfig.apiKey) {
   loadFromCloud(true, true); // Auto-load all'avvio, con confronto se i dati locali sono più recenti
 }
+setInterval(autoCloudSave, 3 * 60 * 1000); // salvataggio automatico sul Cloud ogni 3 minuti
 </script>
 </body>
 </html>

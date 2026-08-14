@@ -218,6 +218,10 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
       <div class="report-opts-title">Opzioni di stampa del report</div>
       <div class="report-opts-filters">
         <div style="flex:1;min-width:150px">
+          <label style="font-size:12px;margin-bottom:4px">Anno</label>
+          <select id="report-print-year" onchange="saveReportPrefs()"></select>
+        </div>
+        <div style="flex:1;min-width:150px">
           <label style="font-size:12px;margin-bottom:4px">Categoria</label>
           <select id="report-cat" onchange="saveReportPrefs()"></select>
         </div>
@@ -683,6 +687,8 @@ function renderYears() {
   if(prevL) lsel.value = prevL;
   var rsel = document.getElementById('report-year');
   if(rsel){ var prevR = rsel.value; rsel.innerHTML = yOpts; if(prevR) rsel.value = prevR; }
+  var rpy = document.getElementById('report-print-year');
+  if(rpy){ var prevRP = rpy.value; rpy.innerHTML = yOpts; if(prevRP) rpy.value = prevRP; }
 }
 
 function renderMonths() {
@@ -1277,7 +1283,8 @@ function renderBilancio(){
 var REPORT_SECS = ['sec-cat','sec-payer','sec-month','sec-list'];
 
 function saveReportPrefs(){
-  var p = { cat:(document.getElementById('report-cat')||{}).value || 'tutte',
+  var p = { year:(document.getElementById('report-print-year')||{}).value || 'tutti',
+            cat:(document.getElementById('report-cat')||{}).value || 'tutte',
             pay:(document.getElementById('report-paidby')||{}).value || 'tutti', secs:{} };
   REPORT_SECS.forEach(function(id){ var el=document.getElementById(id); if(el) p.secs[id]=el.checked; });
   localStorage.setItem('cc_report_prefs', JSON.stringify(p));
@@ -1286,6 +1293,8 @@ function saveReportPrefs(){
 function loadReportPrefs(){
   var p = safeParse(localStorage.getItem('cc_report_prefs'), null);
   if(!p) return;
+  var y = document.getElementById('report-print-year');
+  if(y && p.year){ var oky=false; for(var j=0;j<y.options.length;j++){ if(y.options[j].value===p.year) oky=true; } if(oky) y.value=p.year; }
   var c = document.getElementById('report-cat');
   if(c && p.cat){ var ok=false; for(var i=0;i<c.options.length;i++){ if(c.options[i].value===p.cat) ok=true; } if(ok) c.value=p.cat; }
   var q = document.getElementById('report-paidby');
@@ -1297,7 +1306,8 @@ function loadReportPrefs(){
 }
 
 function openAnnualReport(){
-  var yv   = (document.getElementById('report-year').value) || 'tutti';
+  var pySel = document.getElementById('report-print-year') || document.getElementById('report-year');
+  var yv   = (pySel && pySel.value) || 'tutti';
   var catV = (document.getElementById('report-cat')||{}).value || 'tutte';
   var payV = (document.getElementById('report-paidby')||{}).value || 'tutti';
   var secCat   = document.getElementById('sec-cat').checked;

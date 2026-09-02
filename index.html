@@ -291,7 +291,7 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
       </div>
       <div class="grid2" style="margin-top:10px">
         <div><label>📅 Data</label><input type="date" id="f-date"></div>
-        <div><label>💶 Importo (€)</label><input type="number" id="f-amount" placeholder="0.00"></div>
+        <div><label>💶 Importo (€)</label><input type="number" id="f-amount" min="0.01" step="0.01" placeholder="0.00"></div>
       </div>
       <div style="margin-top:10px">
         <label>👤 Pagato da</label>
@@ -384,6 +384,7 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
       <button class="btn-primary" style="background:#4a7c59;" onclick="manualCloudLoad()" id="btn-cloud-load">⬇️ Scarica Dati</button>
       <button class="btn-primary" style="background:#2c5f2e;" onclick="manualCloudSave()" id="btn-cloud-save">⬆️ Salva Ora</button>
     </div>
+    <div id="cloud-status" style="font-size:12px;line-height:1.45;padding:10px;border-radius:10px;background:#f6faf3;border:1px solid #d4e8cc;margin-bottom:15px">Stato Cloud non ancora verificato.</div>
     <button class="btn-cancel" style="width:100%" onclick="closeCloudManager()">Chiudi Impostazioni</button>
   </div>
 </div>
@@ -403,7 +404,7 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
     </div>
     <div class="grid2" style="margin-bottom:10px">
       <div><label>📅 Data</label><input type="date" id="edit-exp-date"></div>
-      <div><label>💶 Importo (€)</label><input type="number" id="edit-exp-amount" step="0.01"></div>
+      <div><label>💶 Importo (€)</label><input type="number" id="edit-exp-amount" min="0.01" step="0.01"></div>
     </div>
     <div style="margin-bottom:10px">
       <label>👤 Pagato da</label>
@@ -462,10 +463,61 @@ if(!cloudConfig || typeof cloudConfig!=='object'){ cloudConfig = {binId:"",apiKe
 var isSyncing = false;
 var hasUnsavedChanges = false; // Flag per intercettare se ci sono modifiche
 var cloudBaseExportedAt = 0; // timestamp dei dati caricati dal cloud (rileva sovrascritture)
+var cloudDeviceId = localStorage.getItem('cc_device_id') || ('dev-'+Date.now()+'-'+Math.random().toString(36).slice(2));
+localStorage.setItem('cc_device_id', cloudDeviceId);
+
+function cloudBaseKey(){ return 'cc_cloud_base_'+String(cloudConfig.binId||''); }
+function setCloudBase(ts){ cloudBaseExportedAt=Number(ts)||0; if(cloudConfig.binId) localStorage.setItem(cloudBaseKey(),String(cloudBaseExportedAt)); }
+function cloudUrl(){ return 'https://api.jsonbin.io/v3/b/'+encodeURIComponent(cloudConfig.binId)+'/latest?_='+Date.now(); }
+function cloudHeaders(){ return {'X-Master-Key':cloudConfig.apiKey,'Cache-Control':'no-cache'}; }
+function newSyncId(){ return cloudDeviceId+'-'+Date.now()+'-'+Math.random().toString(36).slice(2); }
+function cloudPayload(syncId){ return {expenses:JSON.parse(JSON.stringify(expenses)),categories:JSON.parse(JSON.stringify(categories)),exportedAt:new Date().toISOString(),syncId:syncId,deviceId:cloudDeviceId,schemaVersion:2}; }
+function setCloudStatus(text, ok){ var el=document.getElementById('cloud-status'); if(el){el.textContent=text;el.style.color=ok===false?'#a12a2a':'#2c5f2e';el.style.background=ok===false?'#fff1f1':'#f0faf0';} }
+cloudBaseExportedAt = Number(localStorage.getItem(cloudBaseKey()))||0;
 
 function safeParse(raw, fallback){ try { var v = JSON.parse(raw); return (v==null)?fallback:v; } catch(e){ return fallback; } }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
-function normalizeData(){ expenses.forEach(function(e){ if(typeof e.active==='undefined') e.active=true; }); }
+function validColor(v){ return /^#[0-9a-f]{6}$/i.test(String(v||'')); }
+function normalizeData(){
+  if(!Array.isArray(categories) || !categories.length) categories = DEFAULT_CATS.map(function(c){return Object.assign({},c);});
+  var seen = {};
+  categories = categories.filter(function(c){
+    if(!c || typeof c!=='object') return false;
+    c.id = String(c.id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80);
+    if(!c.id || seen[c.id]) return false;
+    seen[c.id]=true;
+    c.label=String(c.label||'Senza nome').slice(0,100);
+    c.emoji=String(c.emoji||'📦').slice(0,12);
+    c.color=validColor(c.color)?c.color:'#888888';
+    c.bg=c.color+'22';
+    return true;
+  });
+  if(!categories.length) categories = DEFAULT_CATS.map(function(c){return Object.assign({},c);});
+  if(!Array.isArray(expenses)) expenses=[];
+  expenses = expenses.filter(function(e){
+    if(!e || typeof e!=='object') return false;
+    e.amount=Number(e.amount);
+    if(!Number.isFinite(e.amount) || e.amount<=0 || !/^\d{4}-\d{2}-\d{2}$/.test(String(e.date||''))) return false;
+    e.id=Number.isFinite(Number(e.id))?Number(e.id):Date.now()+Math.random();
+    e.title=String(e.title||'').trim().slice(0,200);
+    if(!e.title) return false;
+    e.notes=String(e.notes||'').slice(0,1000);
+    e.paidBy=e.paidBy==='Silvia'?'Silvia':'Papà';
+    if(!seen[e.categoryId]) e.categoryId=categories[0].id;
+    if(typeof e.active==='undefined') e.active=true; else e.active=!!e.active;
+    return true;
+  });
+}
+
+function validateBackup(parsed){
+  if(!parsed || !Array.isArray(parsed.expenses) || !Array.isArray(parsed.categories) || !parsed.categories.length) return 'Struttura del backup non valida.';
+  for(var i=0;i<parsed.expenses.length;i++){
+    var e=parsed.expenses[i];
+    if(!e || !String(e.title||'').trim() || !/^\d{4}-\d{2}-\d{2}$/.test(String(e.date||'')) || !Number.isFinite(Number(e.amount)) || Number(e.amount)<=0)
+      return 'La spesa numero '+(i+1)+' contiene titolo, data o importo non validi.';
+  }
+  return '';
+}
 
 function save() {
   localStorage.setItem('cc_expenses', JSON.stringify(expenses));
@@ -557,6 +609,7 @@ function onYearChange() {
 }
 
 function onListFilterChange() {
+  selectedMonth = null;
   currentPage = 0;
   renderExpenses();
 }
@@ -603,8 +656,8 @@ function addExpense() {
   var notes = document.getElementById('f-notes').value;
   var paidBy = document.getElementById('f-paidby2').value;
   
-  if(!title || !date || isNaN(amount)) {
-    alert("Compila i campi obbligatori (Titolo, Data, Importo)");
+  if(!title || !date || !Number.isFinite(amount) || amount<=0) {
+    alert("Compila i campi obbligatori e inserisci un importo maggiore di zero.");
     return;
   }
   
@@ -623,7 +676,7 @@ function addExpense() {
 function toggleActive(id) {
   var e = expenses.find(function(x){return x.id===id;});
   if(e) e.active = !e.active;
-  save(); renderExpenses();
+  save(); renderAll();
 }
 
 function deleteExpense(id) {
@@ -734,6 +787,7 @@ function renderExpenses() {
     if(listYear!=='tutti' && d.getFullYear()!==parseInt(listYear)) return false;
     if(listCat!=='tutte' && e.categoryId!==listCat) return false;
     if(listPay!=='tutti' && payerOf(e)!==listPay) return false;
+    if(selectedMonth!==null && selectedYear && (d.getFullYear()!==selectedYear || d.getMonth()!==selectedMonth)) return false;
     return true;
   }).sort(function(a,b){
     var t = new Date(b.date) - new Date(a.date);
@@ -741,7 +795,7 @@ function renderExpenses() {
   });
 
   var total = filtered.filter(function(e){return e.active;}).reduce(function(s,e){return s+e.amount;}, 0);
-  var label = listYear==='tutti' ? 'Tutte le spese' : ('Spese '+listYear);
+  var label = selectedMonth!==null && selectedYear ? ('Spese '+MONTHS[selectedMonth]+' '+selectedYear) : (listYear==='tutti' ? 'Tutte le spese' : ('Spese '+listYear));
   document.getElementById('list-title').textContent = '📋 '+label+' ('+filtered.length+' voci)';
   document.getElementById('list-total').textContent = '€ '+total.toFixed(2);
 
@@ -841,6 +895,7 @@ function openCloudManager() {
   document.getElementById('cloud-bin-id').value = cloudConfig.binId || '';
   document.getElementById('cloud-api-key').value = cloudConfig.apiKey || '';
   document.getElementById('modal-cloud').style.display = 'flex';
+  if(cloudConfig.binId) setCloudStatus('Bin '+cloudConfig.binId+' · premi “Scarica Dati” per verificare contenuto e data.',true);
 }
 
 function closeCloudManager() {
@@ -851,6 +906,7 @@ function saveCloudConfig() {
   cloudConfig.binId = document.getElementById('cloud-bin-id').value.trim();
   cloudConfig.apiKey = document.getElementById('cloud-api-key').value.trim();
   localStorage.setItem('app-cloud-config', JSON.stringify(cloudConfig));
+  cloudBaseExportedAt = Number(localStorage.getItem(cloudBaseKey()))||0;
   updateCloudBtnStyle();
 }
 
@@ -861,9 +917,9 @@ async function loadFromCloud(isSilent = false, isStartup = false) {
   updateCloudBtnStyle();
   
   try {
-    const res = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}/latest`, {
+    const res = await fetch(cloudUrl(), {
       method: 'GET',
-      headers: { 'X-Master-Key': cloudConfig.apiKey }
+      headers: cloudHeaders(), cache:'no-store'
     });
     
     if(!res.ok) throw new Error(cloudErrore(res.status, 'il caricamento'));
@@ -891,16 +947,18 @@ async function loadFromCloud(isSilent = false, isStartup = false) {
       expenses = data.record.expenses;
       categories = data.record.categories;
       normalizeData();
-      cloudBaseExportedAt = data.record.exportedAt ? new Date(data.record.exportedAt).getTime() : Date.now();
+      setCloudBase(data.record.exportedAt ? new Date(data.record.exportedAt).getTime() : Date.now());
       saveNoDirty(); // Salvo in localStorage ma senza impostare hasUnsavedChanges = true
       hasUnsavedChanges = false;
       updateSaveBar();
       selectedYear = null;
       selectedMonth = null;
       renderAll();
+      setCloudStatus('✓ Cloud verificato · '+expenses.length+' spese · aggiornato '+(data.record.exportedAt?new Date(data.record.exportedAt).toLocaleString('it-IT'):'data non disponibile')+' · Bin '+cloudConfig.binId,true);
       if(!isSilent) showMsg('✅ Dati scaricati dal Cloud!');
     }
   } catch(e) {
+    setCloudStatus('Errore Cloud: '+e.message,false);
     if(!isSilent) alert("\u26a0\ufe0f Caricamento dal Cloud non riuscito\n\n" + e.message);
   } finally {
     isSyncing = false;
@@ -921,13 +979,13 @@ async function saveToCloud(dataToSave, isExit = false, isAuto = false) {
   try {
     // Controllo anti-sovrascrittura: se sul cloud ci sono dati più recenti, chiedi conferma
     try {
-      const chk = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}/latest`, { method:'GET', headers:{ 'X-Master-Key': cloudConfig.apiKey } });
+      const chk = await fetch(cloudUrl(), { method:'GET', headers:cloudHeaders(), cache:'no-store' });
       if(chk.ok){
         const chkData = await chk.json();
         const remoteAt = (chkData.record && chkData.record.exportedAt) ? new Date(chkData.record.exportedAt).getTime() : 0;
-        if(remoteAt && cloudBaseExportedAt && remoteAt > cloudBaseExportedAt + 1000){
+        if(remoteAt && (!cloudBaseExportedAt || remoteAt > cloudBaseExportedAt + 1000)){
           if(isAuto){ isSyncing = false; updateCloudBtnStyle(); return false; } // auto: non sovrascrivo in silenzio
-          if(!window.confirm("⚠️ Sul cloud ci sono dati più recenti, salvati da un altro dispositivo.\n\nSe continui verranno SOVRASCRITTI con i dati di questo dispositivo. Procedere?")){
+          if(!window.confirm("⚠️ Il contenuto Cloud non corrisponde all'ultima versione conosciuta da questo dispositivo.\n\nCloud: "+new Date(remoteAt).toLocaleString('it-IT')+"\nDati Cloud: "+((chkData.record.expenses||[]).length)+" spese\n\nPer evitare perdite, premi Annulla e usa prima “Scarica Dati”.\nOK forza la sovrascrittura.")){
             isSyncing = false; updateCloudBtnStyle(); return false;
           }
         }
@@ -944,11 +1002,20 @@ async function saveToCloud(dataToSave, isExit = false, isAuto = false) {
     });
     
     if(!res.ok) throw new Error(cloudErrore(res.status, 'il salvataggio'));
-    
-    cloudBaseExportedAt = (dataToSave && dataToSave.exportedAt) ? new Date(dataToSave.exportedAt).getTime() : Date.now();
+
+    // Rilettura obbligatoria: il messaggio di successo compare solo se JSONBin restituisce esattamente questa versione.
+    const verify = await fetch(cloudUrl(), {method:'GET',headers:cloudHeaders(),cache:'no-store'});
+    if(!verify.ok) throw new Error('Dati inviati, ma verifica finale non riuscita: '+cloudErrore(verify.status,'la verifica'));
+    const verifiedData = await verify.json();
+    const rec = verifiedData && verifiedData.record;
+    if(!rec || rec.syncId!==dataToSave.syncId || !Array.isArray(rec.expenses) || rec.expenses.length!==dataToSave.expenses.length)
+      throw new Error('JSONBin non ha restituito la versione appena inviata. Il salvataggio non viene considerato confermato.');
+
+    setCloudBase(new Date(rec.exportedAt).getTime()||Date.now());
     hasUnsavedChanges = false; // Reset modifiche
     setLastSaved('cloud');
     updateSaveBar();
+    setCloudStatus('✓ Salvataggio verificato · '+rec.expenses.length+' spese · '+new Date(rec.exportedAt).toLocaleString('it-IT')+' · Bin '+cloudConfig.binId,true);
     
     if (isExit) {
       alert("✅ Salvataggio completato. I dati sono al sicuro. Puoi chiudere manualmente questa scheda (il browser potrebbe bloccare la chiusura automatica).");
@@ -958,6 +1025,7 @@ async function saveToCloud(dataToSave, isExit = false, isAuto = false) {
     }
     return true;
   } catch(e) {
+    setCloudStatus('Salvataggio non verificato: '+e.message,false);
     if(!isAuto) alert("\u26a0\ufe0f Salvataggio sul Cloud non riuscito\n\n" + e.message + "\n\nI dati restano salvati su questo dispositivo.");
     return false;
   } finally {
@@ -976,7 +1044,7 @@ function manualCloudLoad() {
 }
 
 function manualCloudSave() {
-  var dataToSave = { expenses: expenses, categories: categories, exportedAt: new Date().toISOString() };
+  var dataToSave = cloudPayload(newSyncId());
   saveToCloud(dataToSave, false);
 }
 
@@ -984,7 +1052,7 @@ function manualCloudSave() {
 function autoCloudSave() {
   if(!cloudConfig.binId || !cloudConfig.apiKey) return; // Cloud non configurato
   if(!hasUnsavedChanges || isSyncing) return;           // niente da salvare o già in corso
-  var dataToSave = { expenses: expenses, categories: categories, exportedAt: new Date().toISOString() };
+  var dataToSave = cloudPayload(newSyncId());
   saveToCloud(dataToSave, false, true);                 // true = automatico (silenzioso)
 }
 
@@ -996,7 +1064,7 @@ async function exitAndSave() {
     return;
   }
 
-  var dataToSave = { expenses: expenses, categories: categories, exportedAt: new Date().toISOString() };
+  var dataToSave = cloudPayload(newSyncId());
 
   if (cloudConfig.binId && cloudConfig.apiKey) {
     // Via Cloud
@@ -1126,8 +1194,8 @@ function saveEditExpense() {
   var notes = document.getElementById('edit-exp-notes').value;
   var paidBy = document.getElementById('edit-exp-paidby').value;
 
-  if(!title || !date || isNaN(amount)) {
-    alert("Compila i campi obbligatori (Titolo, Data, Importo)");
+  if(!title || !date || !Number.isFinite(amount) || amount<=0) {
+    alert("Compila i campi obbligatori e inserisci un importo maggiore di zero.");
     return;
   }
 
@@ -1242,7 +1310,8 @@ function doRestore(e) {
   reader.onload = function(ev) {
     try {
       var parsed = JSON.parse(ev.target.result);
-      if(!parsed.expenses || !parsed.categories) throw new Error();
+      var validationError = validateBackup(parsed);
+      if(validationError) throw new Error(validationError);
       var nSpese = parsed.expenses.length;
       var dataBk = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString('it-IT') : 'data non indicata';
       showConfirm(
@@ -1251,7 +1320,7 @@ function doRestore(e) {
         function(){ applyRestore(parsed); }
       );
     } catch(err) {
-      showMsg('❌ File non valido o corrotto.');
+      showMsg('❌ '+(err.message||'File non valido o corrotto.'));
     }
   };
   reader.readAsText(file);

@@ -3,6 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#2c5f2e">
+<meta name="description" content="Gestisci le spese della Casa in Campagna, anche offline.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Casa in Campagna">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>Casa in Campagna</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1506,6 +1514,15 @@ if (cloudConfig.binId && cloudConfig.apiKey) {
   loadFromCloud(true, true); // Auto-load all'avvio, con confronto se i dati locali sono più recenti
 }
 setInterval(autoCloudSave, 3 * 60 * 1000); // salvataggio automatico sul Cloud ogni 3 minuti
+</script>
+<script>
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function (error) {
+      console.warn('Modalità offline non disponibile:', error);
+    });
+  });
+}
 </script>
 </body>
 </html>

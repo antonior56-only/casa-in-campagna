@@ -22,6 +22,7 @@ body{min-height:100vh;background:linear-gradient(160deg,#f0f7ee,#e8f0e3 40%,#d4e
 .backup-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 .btn-backup{background:rgba(255,255,255,0.15);border:1.5px solid rgba(255,255,255,0.5);color:white;border-radius:20px;padding:7px 20px;cursor:pointer;font-weight:bold;font-size:14px;font-family:Georgia,serif;transition:all 0.3s;}
 .backup-msg{background:rgba(0,0,0,0.35);color:white;border-radius:12px;padding:5px 16px;font-size:13px;display:none}
+.install-help{color:#f0f7ee;font-size:12px;max-width:620px;text-align:center;line-height:1.4;display:none}
 .wrap{max-width:900px;margin:0 auto;padding:24px 16px}
 .card{background:white;border-radius:16px;padding:16px 20px;box-shadow:0 2px 12px #0001;margin-bottom:20px;border:1px solid #d4e8cc}
 .card-green{border:1.5px solid #4a7c59}
@@ -176,6 +177,7 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
   <p>Registro spese &amp; gestione patrimoniale</p>
   <div class="backup-bar">
     <div class="backup-btns">
+      <button class="btn-backup" id="btn-install" type="button" onclick="installApp()">📲 Installa app</button>
       <button id="btn-cloud-config" class="btn-backup" onclick="openCloudManager()">☁️ Configura Cloud</button>
       <button class="btn-backup" id="btn-exit-save" onclick="exitAndSave()" style="background:rgba(255,255,255,0.25); border-color:white;">🚪 Esci e Salva</button>
       <button class="btn-backup" onclick="doBackup()">💾 Backup Locale</button>
@@ -185,6 +187,7 @@ input,select{width:100%;border:1.5px solid #d4e8cc;border-radius:10px;padding:8p
         <input type="file" accept=".json" onchange="doRestore(event)" style="display:none">
       </label>
     </div>
+    <div class="install-help" id="install-help" role="status" aria-live="polite"></div>
     <div class="backup-msg" id="backup-msg"></div>
   </div>
 </div>
@@ -1516,6 +1519,55 @@ if (cloudConfig.binId && cloudConfig.apiKey) {
 setInterval(autoCloudSave, 3 * 60 * 1000); // salvataggio automatico sul Cloud ogni 3 minuti
 </script>
 <script>
+let deferredInstallPrompt = null;
+const installButton = document.getElementById('btn-install');
+const installHelp = document.getElementById('install-help');
+
+function isInstalled() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function updateInstallButton() {
+  installButton.style.display = isInstalled() ? 'none' : '';
+  if (isInstalled()) installHelp.style.display = 'none';
+}
+
+function showInstallHelp(message) {
+  installHelp.textContent = message;
+  installHelp.style.display = 'block';
+}
+
+async function installApp() {
+  if (isInstalled()) return;
+  if (deferredInstallPrompt) {
+    const prompt = deferredInstallPrompt;
+    deferredInstallPrompt = null;
+    prompt.prompt();
+    const choice = await prompt.userChoice;
+    if (choice.outcome !== 'accepted') showInstallHelp('Installazione annullata. Puoi riprovare dal menu del browser.');
+    return;
+  }
+  if (location.protocol === 'file:') {
+    showInstallHelp('Per installarla, pubblica tutti i file su HTTPS oppure aprili tramite un server locale. Dal file aperto direttamente non è possibile installare la PWA.');
+  } else if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+    showInstallHelp('Su iPhone o iPad: apri il menu Condividi del browser e scegli “Aggiungi alla schermata Home”.');
+  } else {
+    showInstallHelp('Apri il menu del browser e scegli “Installa app” o “Aggiungi alla schermata Home”. Se la voce non compare, usa HTTPS e attendi il caricamento completo.');
+  }
+}
+
+window.addEventListener('beforeinstallprompt', function (event) {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  installHelp.style.display = 'none';
+  updateInstallButton();
+});
+window.addEventListener('appinstalled', function () {
+  deferredInstallPrompt = null;
+  updateInstallButton();
+});
+updateInstallButton();
+
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('./sw.js').catch(function (error) {

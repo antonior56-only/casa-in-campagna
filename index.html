@@ -1528,8 +1528,7 @@ function isInstalled() {
 }
 
 function updateInstallButton() {
-  installButton.style.display = isInstalled() ? 'none' : '';
-  if (isInstalled()) installHelp.style.display = 'none';
+  installButton.textContent = isInstalled() ? '✓ App installata' : '📲 Installa app';
 }
 
 function showInstallHelp(message) {
@@ -1538,7 +1537,10 @@ function showInstallHelp(message) {
 }
 
 async function installApp() {
-  if (isInstalled()) return;
+  if (isInstalled()) {
+    showInstallHelp('L’app è già installata su questo dispositivo.');
+    return;
+  }
   if (deferredInstallPrompt) {
     const prompt = deferredInstallPrompt;
     deferredInstallPrompt = null;

@@ -482,7 +482,7 @@ function setCloudBase(ts){ cloudBaseExportedAt=Number(ts)||0; if(cloudConfig.bin
 function cloudUrl(){ return 'https://api.jsonbin.io/v3/b/'+encodeURIComponent(cloudConfig.binId)+'/latest?_='+Date.now(); }
 function cloudHeaders(){ return {'X-Master-Key':cloudConfig.apiKey,'Cache-Control':'no-cache'}; }
 function newSyncId(){ return cloudDeviceId+'-'+Date.now()+'-'+Math.random().toString(36).slice(2); }
-function cloudPayload(syncId){ return {expenses:JSON.parse(JSON.stringify(expenses)),categories:JSON.parse(JSON.stringify(categories)),exportedAt:new Date().toISOString(),syncId:syncId,deviceId:cloudDeviceId,schemaVersion:2}; }
+function cloudPayload(syncId){ return {expenses:JSON.parse(JSON.stringify(expenses)),categories:JSON.parse(JSON.stringify(categories)),exportedAt:new Date().toISOString(),syncId:syncId,deviceId:cloudDeviceId,schemaVersion:3}; }
 function setCloudStatus(text, ok){ var el=document.getElementById('cloud-status'); if(el){el.textContent=text;el.style.color=ok===false?'#a12a2a':'#2c5f2e';el.style.background=ok===false?'#fff1f1':'#f0faf0';} }
 cloudBaseExportedAt = Number(localStorage.getItem(cloudBaseKey()))||0;
 
@@ -505,29 +505,67 @@ function normalizeData(){
   });
   if(!categories.length) categories = DEFAULT_CATS.map(function(c){return Object.assign({},c);});
   if(!Array.isArray(expenses)) expenses=[];
-  expenses = expenses.filter(function(e){
-    if(!e || typeof e!=='object') return false;
+  expenses = expenses.map(function(e){
+    if(!e || typeof e!=='object') return {id:null,date:'',amount:NaN,categoryId:'',notes:'',title:'',paidBy:'',active:true};
     e.amount=Number(e.amount);
-    if(!Number.isFinite(e.amount) || e.amount<=0 || !/^\d{4}-\d{2}-\d{2}$/.test(String(e.date||''))) return false;
-    e.id=Number.isFinite(Number(e.id))?Number(e.id):Date.now()+Math.random();
+    e.id=Number.isFinite(Number(e.id))?Number(e.id):e.id;
+    e.date=String(e.date||'');
     e.title=String(e.title||'').trim().slice(0,200);
-    if(!e.title) return false;
     e.notes=String(e.notes||'').slice(0,1000);
-    e.paidBy=e.paidBy==='Silvia'?'Silvia':'Papà';
-    if(!seen[e.categoryId]) e.categoryId=categories[0].id;
+    e.paidBy=String(e.paidBy||'');
+    e.categoryId=String(e.categoryId||'');
     if(typeof e.active==='undefined') e.active=true; else e.active=!!e.active;
-    return true;
+    return e;
   });
 }
 
+function isRealISODate(value){
+  var s=String(value||'');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  var p=s.split('-').map(Number), d=new Date(Date.UTC(p[0],p[1]-1,p[2]));
+  return d.getUTCFullYear()===p[0] && d.getUTCMonth()===p[1]-1 && d.getUTCDate()===p[2];
+}
+
+function validateDataSet(parsed){
+  var errors=[];
+  if(!parsed || typeof parsed!=='object') return ['Il contenuto non è un oggetto JSON valido.'];
+  if(!Array.isArray(parsed.categories) || !parsed.categories.length) errors.push('Categorie mancanti o non valide.');
+  if(!Array.isArray(parsed.expenses)) errors.push('Elenco spese mancante o non valido.');
+  if(errors.length) return errors;
+  var catIds={}, expenseIds={};
+  parsed.categories.forEach(function(c,i){
+    var pos=i+1, id=c && String(c.id||'').trim();
+    if(!c || typeof c!=='object') { errors.push('Categoria '+pos+': struttura non valida.'); return; }
+    if(!id) errors.push('Categoria '+pos+': ID mancante.');
+    else if(catIds[id]) errors.push('Categoria '+pos+': ID duplicato “'+id+'”.');
+    else catIds[id]=true;
+    if(!String(c.label||'').trim()) errors.push('Categoria '+pos+': nome mancante.');
+    if(!/^#[0-9a-f]{6}$/i.test(String(c.color||''))) errors.push('Categoria '+pos+': colore non valido.');
+  });
+  parsed.expenses.forEach(function(e,i){
+    var pos=i+1, prefix='Spesa '+pos, id=e && e.id;
+    if(!e || typeof e!=='object') { errors.push(prefix+': struttura non valida.'); return; }
+    if(!Number.isFinite(Number(id))) errors.push(prefix+': ID mancante o non numerico.');
+    else if(expenseIds[String(id)]) errors.push(prefix+': ID duplicato “'+id+'”.');
+    else expenseIds[String(id)]=true;
+    if(!String(e.title||'').trim()) errors.push(prefix+': titolo mancante.');
+    if(!isRealISODate(e.date)) errors.push(prefix+' “'+String(e.title||'senza titolo')+'”: data mancante o non valida (“'+String(e.date||'')+'”).');
+    if(!Number.isFinite(Number(e.amount)) || Number(e.amount)<=0) errors.push(prefix+' “'+String(e.title||'senza titolo')+'”: importo non valido.');
+    if(!catIds[String(e.categoryId||'')]) errors.push(prefix+' “'+String(e.title||'senza titolo')+'”: categoria inesistente.');
+    if(e.paidBy!=='Papà' && e.paidBy!=='Silvia') errors.push(prefix+' “'+String(e.title||'senza titolo')+'”: pagante “'+String(e.paidBy||'mancante')+'” non ammesso.');
+    if(typeof e.active!=='boolean') errors.push(prefix+' “'+String(e.title||'senza titolo')+'”: stato attivo/non attivo non valido.');
+  });
+  return errors;
+}
+
+function validationMessage(errors){
+  var shown=errors.slice(0,12), more=errors.length-shown.length;
+  return 'Operazione bloccata: trovati '+errors.length+' error'+(errors.length===1?'e':'i')+' di congruità.\n\n• '+shown.join('\n• ')+(more>0?'\n• … e altri '+more+' errori.':'')+'\n\nCorreggi i dati e riprova.';
+}
+
 function validateBackup(parsed){
-  if(!parsed || !Array.isArray(parsed.expenses) || !Array.isArray(parsed.categories) || !parsed.categories.length) return 'Struttura del backup non valida.';
-  for(var i=0;i<parsed.expenses.length;i++){
-    var e=parsed.expenses[i];
-    if(!e || !String(e.title||'').trim() || !/^\d{4}-\d{2}-\d{2}$/.test(String(e.date||'')) || !Number.isFinite(Number(e.amount)) || Number(e.amount)<=0)
-      return 'La spesa numero '+(i+1)+' contiene titolo, data o importo non validi.';
-  }
-  return '';
+  var errors=validateDataSet(parsed);
+  return errors.length ? validationMessage(errors) : '';
 }
 
 function save() {
@@ -937,6 +975,8 @@ async function loadFromCloud(isSilent = false, isStartup = false) {
     
     const data = await res.json();
     if(data.record && data.record.expenses && data.record.categories) {
+      var cloudErrors=validateDataSet(data.record);
+      if(cloudErrors.length) throw new Error('Dati Cloud non congruenti.\n\n'+validationMessage(cloudErrors));
       // All'avvio: se i dati locali sono piu' recenti di quelli sul cloud, chiedo cosa fare
       if(isStartup && expenses.length > 0){
         var localIso = localStorage.getItem('cc_lastmod');
@@ -984,6 +1024,14 @@ async function saveToCloud(dataToSave, isExit = false, isAuto = false) {
     return false;
   }
 
+  var validationErrors=validateDataSet(dataToSave);
+  if(validationErrors.length){
+    var msg=validationMessage(validationErrors);
+    setCloudStatus('Salvataggio bloccato: dati non congruenti.',false);
+    if(!isAuto) alert('⚠️ '+msg);
+    return false;
+  }
+
   isSyncing = true;
   updateCloudBtnStyle();
 
@@ -1021,6 +1069,10 @@ async function saveToCloud(dataToSave, isExit = false, isAuto = false) {
     const rec = verifiedData && verifiedData.record;
     if(!rec || rec.syncId!==dataToSave.syncId || !Array.isArray(rec.expenses) || rec.expenses.length!==dataToSave.expenses.length)
       throw new Error('JSONBin non ha restituito la versione appena inviata. Il salvataggio non viene considerato confermato.');
+    var verifiedErrors=validateDataSet(rec);
+    if(verifiedErrors.length) throw new Error('La copia riletta dal Cloud non è congruente.\n\n'+validationMessage(verifiedErrors));
+    if(JSON.stringify(rec.expenses)!==JSON.stringify(dataToSave.expenses) || JSON.stringify(rec.categories)!==JSON.stringify(dataToSave.categories))
+      throw new Error('La copia riletta dal Cloud differisce dai dati inviati. Il salvataggio non viene considerato confermato.');
 
     setCloudBase(new Date(rec.exportedAt).getTime()||Date.now());
     hasUnsavedChanges = false; // Reset modifiche
@@ -1226,7 +1278,21 @@ function saveEditExpense() {
 // ---- GESTIONE BACKUP E DATI ---- //
 
 function doBackup(isExit = false) {
-  var data = JSON.stringify({expenses:expenses, categories:categories, exportedAt:new Date().toISOString()}, null, 2);
+  var payload={expenses:expenses, categories:categories, exportedAt:new Date().toISOString(), schemaVersion:3};
+  var validationErrors=validateDataSet(payload);
+  if(validationErrors.length){
+    alert('⚠️ '+validationMessage(validationErrors));
+    showMsg('❌ Backup non creato: correggi i dati segnalati.');
+    return false;
+  }
+  var data = JSON.stringify(payload, null, 2);
+  try {
+    var roundTrip=JSON.parse(data), roundTripErrors=validateDataSet(roundTrip);
+    if(roundTripErrors.length) throw new Error(validationMessage(roundTripErrors));
+  } catch(err) {
+    alert('⚠️ Backup non creato: verifica finale fallita.\n\n'+err.message);
+    return false;
+  }
   var blob = new Blob([data], {type:'application/json'});
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1244,6 +1310,7 @@ function doBackup(isExit = false) {
   } else {
     showMsg('✅ Backup scaricato!');
   }
+  return true;
 }
 
 function copyForAI() {
@@ -1331,7 +1398,9 @@ function doRestore(e) {
         function(){ applyRestore(parsed); }
       );
     } catch(err) {
-      showMsg('❌ '+(err.message||'File non valido o corrotto.'));
+      var restoreError=err.message||'File non valido o corrotto.';
+      alert('⚠️ Ripristino non eseguito.\n\n'+restoreError);
+      showMsg('❌ Ripristino bloccato: il backup contiene dati non congruenti.');
     }
   };
   reader.readAsText(file);
